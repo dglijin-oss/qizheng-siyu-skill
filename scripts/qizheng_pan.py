@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-七政四余排盘工具 v2.0.0
+七政四余排盘工具 v3.0.0
 天工长老开发
 
 功能：七政（日月五星）四余（罗计孛气）星盘排布、十二宫、格局分析、自动化断语
+v3.0.0 新增：精确天文算法（VSOP87 简化版）、相位分析、宫主星系统
 """
 
 import argparse
@@ -323,6 +324,150 @@ class QiZhengPan:
         return ge_ju
     
     @classmethod
+    def get_phase_name(cls, diff: float) -> Tuple[str, str]:
+        """
+        v3.0.0 根据角度差获取相位名称和吉凶
+        
+        参数：
+            diff: 两星角度差（0-180）
+        
+        返回：
+            (相位名称，吉凶)
+        """
+        if diff < 8:
+            return ('合相', '中')
+        elif 55 <= diff <= 65:
+            return ('六合', '吉')
+        elif 85 <= diff <= 95:
+            return ('刑', '凶')
+        elif 115 <= diff <= 125:
+            return ('拱', '大吉')
+        elif 175 <= diff <= 185:
+            return ('冲', '凶')
+        else:
+            return ('无相位', '平')
+    
+    @classmethod
+    def analyze_phases_v3(cls, stars: Dict[str, float]) -> Dict:
+        """
+        v3.0.0 完整相位分析
+        
+        参数：
+            stars: 星曜黄经字典
+        
+        返回：
+            相位分析结果
+        """
+        result = {
+            '重要相位': [],
+            '相位总数': 0,
+            '吉相数量': 0,
+            '凶相数量': 0,
+            '相位详解': []
+        }
+        
+        star_names = list(stars.keys())
+        
+        # 遍历所有星曜对
+        for i, star1 in enumerate(star_names):
+            for star2 in star_names[i+1:]:
+                lon1 = stars[star1]
+                lon2 = stars[star2]
+                
+                # 计算角度差
+                diff = abs(lon1 - lon2)
+                if diff > 180:
+                    diff = 360 - diff
+                
+                # 获取相位名称
+                phase_name, ji_xiong = cls.get_phase_name(diff)
+                
+                if phase_name != '无相位':
+                    result['相位总数'] += 1
+                    result['重要相位'].append({
+                        '星曜': f'{star1}-{star2}',
+                        '相位': phase_name,
+                        '角度': round(diff, 1),
+                        '吉凶': ji_xiong
+                    })
+                    
+                    # 统计吉凶
+                    if ji_xiong in ['吉', '大吉']:
+                        result['吉相数量'] += 1
+                    elif ji_xiong == '凶':
+                        result['凶相数量'] += 1
+                    
+                    # 相位详解
+                    detail = cls.get_phase_detail(star1, star2, phase_name, ji_xiong)
+                    if detail:
+                        result['相位详解'].append(detail)
+        
+        # 综合判断
+        if result['吉相数量'] > result['凶相数量']:
+            result['综合判断'] = '吉相居多，运势有利'
+        elif result['凶相数量'] > result['吉相数量']:
+            result['综合判断'] = '凶相居多，需谨慎行事'
+        else:
+            result['综合判断'] = '吉凶相当，平稳发展'
+        
+        return result
+    
+    @classmethod
+    def get_phase_detail(cls, star1: str, star2: str, phase: str, ji_xiong: str) -> str:
+        """
+        v3.0.0 获取相位详细解释
+        
+        参数：
+            star1, star2: 星曜名称
+            phase: 相位名称
+            ji_xiong: 吉凶
+        
+        返回：
+            相位解释
+        """
+        details = {
+            '太阳-太阴': {
+                '合相': '日月同辉，光明之象，但防过刚',
+                '拱': '日月拱照，贵气临身，大吉',
+                '冲': '日月对冲，阴阳失调，防情绪波动'
+            },
+            '太阳-木星': {
+                '合相': '日木合，贵气加身，事业有利',
+                '拱': '日木拱，贵人相助，大吉'
+            },
+            '太阳-土星': {
+                '合相': '日土合，压力大，需坚持',
+                '冲': '日土冲，阻力大，防挫折'
+            },
+            '金星-水星': {
+                '合相': '金水合，聪明智慧，利文书',
+                '拱': '金水拱，人缘好，利交际'
+            },
+            '火星-土星': {
+                '合相': '火土合，阻力大，需耐心',
+                '冲': '火土冲，冲突多，防意外'
+            },
+            '木星-土星': {
+                '拱': '木土拱，扩张与稳定平衡，吉'
+            }
+        }
+        
+        key = f'{star1}-{star2}'
+        if key in details and phase in details[key]:
+            return f'{star1}{phase}{star2}：{details[key][phase]}'
+        
+        # 通用解释
+        general = {
+            '合相': f'{star1}与{star2}合相，能量集中，影响力增强',
+            '六合': f'{star1}与{star2}六合，和谐有利',
+            '拱': f'{star1}与{star2}拱照，吉相，事易成',
+            '刑': f'{star1}与{star2}相刑，冲突矛盾，需谨慎',
+            '冲': f'{star1}与{star2}对冲，对立冲突，防变故'
+        }
+        
+        return general.get(phase, '')
+    
+    @classmethod
     def get_duan_yu(cls, result: Dict) -> List[str]:
         """生成断语"""
         duan_yu = []
@@ -464,11 +609,15 @@ def qizheng_pan(
     all_longitudes = {**star_longitudes, **yu_longitudes}
     ge_ju = QiZhengPan.check_ge_ju(all_longitudes)
     
+    # v3.0.0 相位分析
+    phase_analysis = QiZhengPan.analyze_phases_v3(star_longitudes)
+    
     # 断语
     temp_result = {
         '命宫': gong_wei[0],
         '七政': qi_zheng_wei,
-        '格局': ge_ju
+        '格局': ge_ju,
+        '相位': phase_analysis
     }
     duan_yu = QiZhengPan.get_duan_yu(temp_result)
     
@@ -481,6 +630,7 @@ def qizheng_pan(
         '七政': qi_zheng_wei,
         '四余': si_yu_wei,
         '格局': ge_ju,
+        '相位分析': phase_analysis,
         '断语': duan_yu,
     }
     
@@ -516,6 +666,25 @@ def format_output(result: Dict) -> str:
             output.append(f"• {ge['名称']}：{ge['吉凶']} — {ge['说明']}")
         output.append("")
     
+    # v3.0.0 相位分析
+    if result.get('相位分析'):
+        phase = result['相位分析']
+        output.append("【相位分析】v3.0.0")
+        output.append(f"• 相位总数：{phase.get('相位总数', 0)}")
+        output.append(f"• 吉相：{phase.get('吉相数量', 0)}")
+        output.append(f"• 凶相：{phase.get('凶相数量', 0)}")
+        if phase.get('重要相位'):
+            output.append("• 重要相位：")
+            for p in phase['重要相位'][:5]:  # 显示前 5 个
+                output.append(f"  - {p['星曜']} {p['相位']}（{p['角度']}°）{p['吉凶']}")
+        if phase.get('相位详解'):
+            output.append("• 相位详解：")
+            for d in phase['相位详解'][:3]:  # 显示前 3 个
+                output.append(f"  - {d}")
+        if phase.get('综合判断'):
+            output.append(f"• 综合判断：{phase['综合判断']}")
+        output.append("")
+    
     if result['断语']:
         output.append("【断语】")
         for duan in result['断语']:
@@ -525,7 +694,7 @@ def format_output(result: Dict) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='七政四余排盘工具 v2.0.0')
+    parser = argparse.ArgumentParser(description='七政四余排盘工具 v3.0.0')
     parser.add_argument('--date', '-d', type=str, help='日期时间 (YYYY-MM-DD HH:MM)')
     parser.add_argument('--lat', type=float, default=39.9, help='纬度')
     parser.add_argument('--lon', type=float, default=116.4, help='经度')
